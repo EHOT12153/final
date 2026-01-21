@@ -1,0 +1,50 @@
+server:
+  port: 8080
+
+  tomcat:
+    threads:
+      # Жёстко ограничиваем количество request threads
+      max: 50
+      min-spare: 10
+    accept-count: 100   # очередь запросов, а не новые потоки
+    max-connections: 200
+
+shop:
+  api:
+    # UI ходит в API Gateway по внутреннему адресу докер-сети
+    base-url: ${APP_GATEWAY_BASE:http://api-gateway:8080}
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+management:
+  metrics:
+    tags:
+      service: "shop-ui"
+      env: "local"
+
+    distribution:
+      percentiles:
+        http.server.requests: 0.5, 0.9, 0.95, 0.99
+
+      percentiles-histogram:
+        http.server.requests: true
+
+  observations:
+    http:
+      server:
+        requests:
+          histogram: true
+
+  endpoints:
+    web:
+      exposure:
+        include: "health,info,prometheus"
+
+  endpoint:
+    prometheus:
+      enabled: true
+    health:
+      probes:
+        enabled: true

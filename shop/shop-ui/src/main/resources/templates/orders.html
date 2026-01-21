@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ru" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Мои заказы — MyShop</title>
+
+    <link rel="stylesheet" th:href="@{/webjars/bootstrap/css/bootstrap.min.css}">
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-dark mb-4">
+    <div class="container">
+        <a class="navbar-brand" th:href="@{/}">MyShop</a>
+        <span class="navbar-text text-light">Мои заказы</span>
+        <a class="btn btn-outline-light btn-sm ms-auto" th:href="@{/cart}">Корзина</a>
+    </div>
+</nav>
+
+<main class="container">
+
+    <div th:if="${error}" class="alert alert-danger" th:text="${error}"></div>
+
+    <h1 class="h4 mb-3">Мои заказы</h1>
+
+    <div th:if="${#lists.isEmpty(orders)}" class="alert alert-info">
+        У вас пока нет оформленных заказов.
+    </div>
+
+    <table class="table table-striped" th:if="${!#lists.isEmpty(orders)}">
+        <thead>
+        <tr>
+            <th>ID заказа</th>
+            <th>Создан</th>
+            <th>Сумма, ₽</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="order : ${orders}">
+            <td>
+                <a th:href="@{'/orders/' + ${order['id']}}"
+                   th:text="${order['id']}">1</a>
+            </td>
+            <td th:text="${order['createdAt']}">2025-11-19T18:00:00Z</td>
+            <td th:text="${order['totalPriceCents']}">0</td>
+        </tr>
+        </tbody>
+    </table>
+
+</main>
+
+<script th:src="@{/webjars/bootstrap/js/bootstrap.bundle.min.js}"></script>
+</body>
+</html>

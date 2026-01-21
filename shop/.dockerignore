@@ -1,0 +1,6 @@
+.git
+deployment/logs
+**/target
+**/.idea
+**/.vscode
+**/*.iml

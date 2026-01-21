@@ -1,0 +1,133 @@
+groups:
+  # =========================
+  # Инфраструктура (node-exporter)
+  # =========================
+  - name: node.rules
+    rules:
+      - alert: NodeDown
+        expr: up{job="node-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Нода {{ $labels.instance }} недоступна"
+          description: "Экспортер node-exporter на {{ $labels.instance }} не отвечает более 1 минуты."
+
+      - alert: HighCpuUsage
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Высокая загрузка CPU на {{ $labels.instance }}"
+          description: "Средняя загрузка CPU выше 80% в течение последних 5 минут."
+
+      - alert: HighMemoryUsage
+        expr: ((node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Высокое использование памяти на {{ $labels.instance }}"
+          description: "Использование оперативной памяти выше 80% в течение 5 минут."
+
+      - alert: HighDiskUsage
+        expr: |
+          (node_filesystem_size_bytes{fstype!~"tmpfs|overlay"} - node_filesystem_free_bytes{fstype!~"tmpfs|overlay"})
+          /
+          node_filesystem_size_bytes{fstype!~"tmpfs|overlay"} * 100 > 80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Мало свободного места на диске {{ $labels.instance }} ({{ $labels.mountpoint }})"
+          description: "Свободного места на диске менее 20% в течение 10 минут."
+
+  # =========================
+  # Доступность микросервисов
+  # =========================
+  - name: service.availability.rules
+    rules:
+      - alert: ServiceDown
+        expr: up{job=~".*-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Сервис {{ $labels.job }} недоступен"
+          description: "Prometheus не может опросить {{ $labels.job }} ({{ $labels.instance }}) более 1 минуты."
+
+
+      - alert: HighHttp5xxErrorRate
+        expr: |
+          (
+            sum by (service) (
+              rate(http_server_requests_seconds_count{status=~"5..", env="local"}[5m])
+            )
+            /
+            sum by (service) (
+              rate(http_server_requests_seconds_count{env="local"}[5m])
+            )
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Высокий процент 5xx ответов для {{ $labels.service }}"
+          description: "Доля 5xx ответов выше 5% за последние 5 минут."
+
+      - alert: HighHttp5xxErrorRateCritical
+        expr: |
+          (
+            sum by (service) (
+              rate(http_server_requests_seconds_count{status=~"5..", env="local"}[5m])
+            )
+            /
+            sum by (service) (
+              rate(http_server_requests_seconds_count{env="local"}[5m])
+            )
+          ) > 0.20
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Критически высокий процент 5xx ответов для {{ $labels.service }}"
+          description: "Доля 5xx ответов выше 20% за последние 2 минуты."
+
+  # =========================
+  # Checkout и latency
+  # =========================
+  - name: http.latency.rules
+    rules:
+      - alert: CheckoutLatencyHighP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (service, le) (
+              rate(http_server_requests_seconds_bucket{
+                uri="/cart/{userId}/checkout",
+                method="POST",
+                env="local"
+              }[5m])
+            )
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Высокая p95 латентность checkout в {{ $labels.service }}"
+          description: "P95 времени ответа на /cart/{userId}/checkout > 1s в течение 5 минут."
+
+  # =========================
+  # Бизнес-метрики (простая версия)
+  # =========================
+  - name: business.rules
+    rules:
+      - alert: NoOrdersCreated
+        expr: rate(orders_created_total{service="order-service", env="local"}[10m]) == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Нет новых заказов"
+          description: "За последние 10 минут не было ни одного нового заказа (orders_created_total)."

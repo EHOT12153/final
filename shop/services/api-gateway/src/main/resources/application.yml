@@ -1,0 +1,92 @@
+spring:
+  application:
+    name: api-gateway
+  main:
+    web-application-type: reactive
+
+  cloud:
+    gateway:
+      routes:
+        # ===== AUTH =====
+        - id: auth
+          uri: http://auth-service:8080
+          predicates:
+            - Path=/api/auth/**,/api/auth
+          filters:
+            - StripPrefix=2
+
+        # ===== CATALOG =====
+        - id: catalog
+          uri: http://catalog-service:8080
+          predicates:
+            - Path=/api/catalog/**   # /api/catalog/products -> /products
+          filters:
+            - StripPrefix=2
+
+        # ===== CART =====
+        - id: cart
+          uri: http://cart-service:8080
+          predicates:
+            - Path=/api/cart/**,/api/cart
+          filters:
+            - StripPrefix=1
+
+        # ===== ORDER =====
+        - id: order
+          uri: http://order-service:8080
+          predicates:
+            - Path=/api/orders/**,/api/orders
+          filters:
+            - StripPrefix=1
+
+        # ===== PAYMENT =====
+        - id: payment
+          uri: http://payment-service:8080
+          predicates:
+            - Path=/api/payment/**,/api/payment
+          filters:
+            - StripPrefix=2
+
+        # ===== INVENTORY =====
+        - id: inventory
+          uri: http://inventory-service:8080
+          predicates:
+            - Path=/api/inventory/**,/api/inventory
+          filters:
+            - StripPrefix=2
+
+server:
+  port: 8080
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://discovery:8761/eureka/
+
+management:
+  endpoint:
+    gateway:
+      enabled: true
+
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+
+  metrics:
+    tags:
+      service: "api-gateway"
+      env: "local"
+    distribution:
+      # тут Spring Boot 3.3 ожидает Map<String, double[]>
+      percentiles:
+        http.server.requests: 0.5, 0.9, 0.95, 0.99
+      # а тут Map<String, boolean>
+      percentiles-histogram:
+        http.server.requests: true
+
+  observations:
+    http:
+      server:
+        requests:
+          histogram: true

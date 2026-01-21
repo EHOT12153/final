@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ru" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title th:text="'MyShop — ' + ${p['name']}">MyShop — Товар</title>
+
+    <link rel="stylesheet" th:href="@{/webjars/bootstrap/css/bootstrap.min.css}">
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+
+<nav class="navbar navbar-dark bg-dark">
+    <div class="container">
+        <a class="navbar-brand fw-semibold" th:href="@{/}">MyShop</a>
+        <a class="btn btn-outline-light btn-sm" th:href="@{/cart}">Корзина</a>
+    </div>
+</nav>
+
+<main class="container my-4">
+
+    <a th:href="@{/}" class="text-decoration-none text-muted d-inline-flex align-items-center mb-3">
+        &larr;&nbsp;Вернуться в каталог
+    </a>
+
+    <!-- Сообщение об ошибке / отсутствии товара -->
+    <div th:if="${message != null}" class="alert alert-warning">
+        <span th:text="${message}">Сообщение</span>
+    </div>
+
+    <div class="row" th:if="${p != null}">
+        <!-- дальше твоя текущая верстка продукта -->
+
+    <div class="row">
+        <!-- Левая колонка: картинка-заглушка -->
+        <div class="ratio ratio-4x3 bg-light d-flex align-items-center justify-content-center">
+            <img th:src="@{'/img/' + ${p['image']}}"
+                 alt="Изображение товара"
+                 class="img-fluid"
+                 style="object-fit: contain;">
+        </div>
+        </div>
+
+        <!-- Правая колонка: информация о товаре -->
+        <div class="col-md-7">
+            <h1 class="h3 mb-2" th:text="${p['name']}">Название товара</h1>
+
+            <p class="text-muted mb-1">
+                Артикул:
+                <span class="fw-semibold" th:text="${p['sku']}">SKU-XXX</span>
+            </p>
+
+            <p class="h4 fw-semibold mb-3">
+                <span th:text="${p['price']}">79900</span>&nbsp;₽
+            </p>
+
+            <!-- Форма добавления в корзину -->
+            <form class="d-flex align-items-center gap-2 mb-4"
+                  method="post"
+                  th:action="@{/cart/add}">
+                <input type="hidden" name="productId" th:value="${p['id']}"/>
+
+                <label for="qty" class="mb-0">Кол-во</label>
+                <input id="qty"
+                       name="qty"
+                       type="number"
+                       min="1"
+                       step="1"
+                       value="1"
+                       class="form-control"
+                       style="max-width: 100px;">
+
+                <button type="submit" class="btn btn-primary">
+                    В корзину
+                </button>
+            </form>
+
+            <!-- Описание -->
+            <h5 class="mb-2">Описание</h5>
+            <p th:text="${p['description']} ?: 'Описание пока недоступно.'">
+                Описание товара...
+            </p>
+
+            <!-- Характеристики (если есть) -->
+            <div th:if="${p['specs']} != null">
+                <h5 class="mt-4 mb-2">Характеристики</h5>
+                <table class="table table-sm">
+                    <tbody>
+                    <tr th:each="entry : ${p['specs']}">
+                        <th scope="row" th:text="${entry.key}">Параметр</th>
+                        <td th:text="${entry.value}">Значение</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+
+        </div>
+    </div>
+
+</main>
+
+<script th:src="@{/webjars/bootstrap/js/bootstrap.bundle.min.js}"></script>
+</body>
+</html>

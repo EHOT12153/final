@@ -1,0 +1,60 @@
+{
+  "title": "Shop - Spring Services",
+  "uid": "shop-spring-services",
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "UP targets",
+      "gridPos": {"x":0,"y":0,"w":6,"h":4},
+      "targets": [
+        { "expr": "sum(up)", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeSeries",
+      "title": "HTTP RPS (per service)",
+      "gridPos": {"x":6,"y":0,"w":18,"h":8},
+      "targets": [
+        { "expr": "sum by (service) (rate(http_server_requests_seconds_count[1m]))", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeSeries",
+      "title": "HTTP 4xx/5xx (per service)",
+      "gridPos": {"x":0,"y":8,"w":12,"h":8},
+      "targets": [
+        { "expr": "sum by (service) (rate(http_server_requests_seconds_count{status=~\"4..\"}[1m]))", "refId": "A" },
+        { "expr": "sum by (service) (rate(http_server_requests_seconds_count{status=~\"5..\"}[1m]))", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeSeries",
+      "title": "Avg latency (per service)",
+      "gridPos": {"x":12,"y":8,"w":12,"h":8},
+      "targets": [
+        { "expr": "sum by (service) (rate(http_server_requests_seconds_sum[1m])) / sum by (service) (rate(http_server_requests_seconds_count[1m]))", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "type": "timeSeries",
+      "title": "JVM Heap used (per service)",
+      "gridPos": {"x":0,"y":16,"w":12,"h":8},
+      "targets": [
+        { "expr": "sum by (service) (jvm_memory_used_bytes{area=\"heap\"})", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] }
+    },
+    {
+      "type": "timeSeries",
+      "title": "Live threads (per service)",
+      "gridPos": {"x":12,"y":16,"w":12,"h":8},
+      "targets": [
+        { "expr": "sum by (service) (jvm_threads_live_threads)", "refId": "A" }
+      ]
+    }
+  ]
+}

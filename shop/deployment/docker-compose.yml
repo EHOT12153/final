@@ -1,0 +1,593 @@
+version: "3.8"
+
+services:
+  zookeeper:
+    image: zookeeper:3.8
+    restart: always
+    environment:
+      ZOO_MY_ID: 1
+      ZOO_PORT: 2181
+      ZOO_SERVERS: server.1=zookeeper:2888:3888
+      ZOO_CFG_EXTRA: |-
+        clientPort=2181
+        4lw.commands.whitelist=ruok,stat,conf,mntr
+    ports:
+      - "2181:2181"
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc -w 2 localhost 2181 | grep imok || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [shop-net]
+    mem_limit: 384m
+    cpus: 0.2
+    pids_limit: 256
+
+  kafka:
+    image: wurstmeister/kafka:2.13-2.8.1
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "9092:9092"
+    networks: [shop-net]
+    healthcheck:
+      test: ["CMD-SHELL", "unset JMX_PORT; kafka-broker-api-versions.sh --bootstrap-server 127.0.0.1:9092 >/dev/null 2>&1" ]
+      interval: 10s
+      timeout: 10s
+      retries: 60
+      start_period: 45s
+    mem_limit: 1024m
+    cpus: 0.8
+    pids_limit: 512
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      JAVA_TOOL_OPTIONS: >-
+        -Xms64m -Xmx192m
+    ports:
+      - "8081:8080"
+    networks: [shop-net]
+    mem_limit: 384m
+    cpus: 0.1
+    pids_limit: 128
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: shop
+      POSTGRES_PASSWORD: shop
+      POSTGRES_DB: shopdb
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    networks: [shop-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    mem_limit: 512m
+    cpus: 0.6
+    pids_limit: 256
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks: [shop-net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    mem_limit: 128m
+    cpus: 0.1
+    pids_limit: 128
+
+  discovery:
+    build:
+      context: ..
+      dockerfile: services/discovery/Dockerfile
+      args:
+        SERVICE_PATH: services/discovery
+    restart: unless-stopped
+    ports:
+      - "8761:8761"
+    networks: [shop-net]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8761/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+    mem_limit: 512m
+    cpus: 0.2
+    pids_limit: 256
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+    environment:
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,info
+      MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+      MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: "true"
+      MANAGEMENT_METRICS_TAGS_APPLICATION: ${COMPOSE_PROJECT_NAME:-shop}
+      JAVA_TOOL_OPTIONS: >-
+        -Xms64m -Xmx256m
+        -XX:+UseG1GC
+        -XX:MaxGCPauseMillis=100
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:HeapDumpPath=/tmp
+        -Xlog:gc*:stdout:time,level,tags
+        -Dmanagement.metrics.distribution.percentiles-histogram.http.server.requests=true
+
+  # ============================
+  # GATEWAY: как точка входа для backend-only нагрузки
+  # - включаем actuator gateway endpoints для диагностики routes
+  # ============================
+  api-gateway:
+    build:
+      context: ..
+      dockerfile: services/api-gateway/Dockerfile
+      args:
+        SERVICE_PATH: services/api-gateway
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    networks: [shop-net]
+    depends_on:
+      discovery:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    mem_limit: 1536m
+    cpus: 0.4
+    pids_limit: 512
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+    environment:
+      SPRING_CLOUD_GATEWAY_HTTPCLIENT_WIRETAP: "true"
+      SPRING_CLOUD_GATEWAY_HTTP_SERVER_WIRETAP: "true"
+      LOGGING_LEVEL_REACTOR_NETTY: "INFO"
+      LOGGING_LEVEL_REACTOR_NETTY_HTTP_SERVER: "DEBUG"
+      LOGGING_LEVEL_REACTOR_NETTY_HTTP_CLIENT: "DEBUG"
+      SERVER_TOMCAT_ACCESSLOG_ENABLED: "true"
+      SERVER_TOMCAT_ACCESSLOG_PATTERN: "%t %a \"%r\" %s %b %D"
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery:8761/eureka/
+      SERVER_PORT: ${GATEWAY_PORT:-8080}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_REDIS_HOST: redis
+      # expose gateway actuator endpoints (routes) for debugging
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,info,gateway
+      MANAGEMENT_ENDPOINT_GATEWAY_ENABLED: "true"
+      MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+      MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: "true"
+      MANAGEMENT_METRICS_TAGS_APPLICATION: ${COMPOSE_PROJECT_NAME:-shop}
+      JAVA_TOOL_OPTIONS: >-
+        -Xms128m -Xmx768m
+        -XX:+UseG1GC
+        -XX:MaxGCPauseMillis=50
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:HeapDumpPath=/tmp
+        -Xlog:gc*:stdout:time,level,tags
+        -Dmanagement.metrics.distribution.percentiles-histogram.http.server.requests=true
+
+  # ============================
+  # BACKEND SERVICES
+  # Пробрасываем порты наружу, чтобы нагрузка шла напрямую в сервисы (UI не bottleneck)
+  # Порты выбраны из диапазона 8091..8095 (можешь менять, но лучше оставить стабильно)
+  # ============================
+
+  auth-service:
+    build:
+      context: ..
+      dockerfile: services/auth-service/Dockerfile
+      args:
+        SERVICE_PATH: services/auth-service
+    restart: unless-stopped
+    networks: [shop-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      discovery:
+        condition: service_healthy
+    ports:
+      - "8095:8080"
+    mem_limit: 768m
+    cpus: 0.25
+    pids_limit: 256
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-shopdb}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-shop}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-shop}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery:8761/eureka/
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,info,mappings
+      MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+      MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: "true"
+      MANAGEMENT_METRICS_TAGS_APPLICATION: ${COMPOSE_PROJECT_NAME:-shop}
+      JAVA_TOOL_OPTIONS: >-
+        -Xms128m -Xmx512m
+        -XX:+UseG1GC
+        -XX:MaxGCPauseMillis=50
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:HeapDumpPath=/tmp
+        -Xlog:gc*:stdout:time,level,tags
+        -Dmanagement.metrics.distribution.percentiles-histogram.http.server.requests=true
+
+  catalog-service:
+    build:
+      context: ..
+      dockerfile: services/catalog-service/Dockerfile
+      args:
+        SERVICE_PATH: services/catalog-service
+    restart: unless-stopped
+    networks: [shop-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      discovery:
+        condition: service_healthy
+    ports:
+      - "8091:8080"
+    mem_limit: 512m
+    cpus: 0.18
+    pids_limit: 256
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-shopdb}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-shop}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-shop}
+      SPRING_REDIS_HOST: redis
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery:8761/eureka/
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,info,mappings
+      MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+      MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: "true"
+      MANAGEMENT_METRICS_TAGS_APPLICATION: ${COMPOSE_PROJECT_NAME:-shop}
+      JAVA_TOOL_OPTIONS: >-
+        -Xms64m -Xmx256m
+        -XX:+UseG1GC
+        -XX:MaxGCPauseMillis=50
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:HeapDumpPath=/tmp
+        -Xlog:gc*:stdout:time,level,tags
+        -Dmanagement.metrics.distribution.percentiles-histogram.http.server.requests=true
+
+  cart-service:
+    build:
+      context: ..
+      dockerfile: services/cart-service/Dockerfile
+      args:
+        SERVICE_PATH: services/cart-service
+    restart: unless-stopped
+    networks: [shop-net]
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      discovery:
+        condition: service_healthy
+    ports:
+      - "8092:8080"
+    mem_limit: 768m
+    cpus: 0.3
+    pids_limit: 256
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+    environment:
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery:8761/eureka/
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,info,mappings
+      MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+      MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: "true"
+      MANAGEMENT_METRICS_TAGS_APPLICATION: ${COMPOSE_PROJECT_NAME:-shop}
+      JAVA_TOOL_OPTIONS: >-
+        -Xms256m -Xmx512m
+        -XX:+UseG1GC
+        -XX:MaxGCPauseMillis=200
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:HeapDumpPath=/tmp
+        -Xlog:gc*:stdout:time,level,tags
+        -Dmanagement.metrics.distribution.percentiles-histogram.http.server.requests=true
+
+  order-service:
+    build:
+      context: ..
+      dockerfile: services/order-service/Dockerfile
+      args:
+        SERVICE_PATH: services/order-service
+    restart: unless-stopped
+    networks: [shop-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      discovery:
+        condition: service_healthy
+    ports:
+      - "8093:8080"
+    mem_limit: 1536m
+    cpus: 1.0
+    pids_limit: 512
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-shopdb}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-shop}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-shop}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery:8761/eureka/
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,info,mappings
+      MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+      MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: "true"
+      MANAGEMENT_METRICS_TAGS_APPLICATION: ${COMPOSE_PROJECT_NAME:-shop}
+      JAVA_TOOL_OPTIONS: >-
+        -Xms512m -Xmx1024m
+        -XX:+UseG1GC
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:HeapDumpPath=/tmp
+        -Xlog:gc*:stdout:time,level,tags
+        -Dmanagement.metrics.distribution.percentiles-histogram.http.server.requests=true
+
+  payment-service:
+    build:
+      context: ..
+      dockerfile: services/payment-service/Dockerfile
+      args:
+        SERVICE_PATH: services/payment-service
+    restart: unless-stopped
+    networks: [shop-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      discovery:
+        condition: service_healthy
+    ports:
+      - "8094:8080"
+    mem_limit: 512m
+    cpus: 0.25
+    pids_limit: 256
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+    environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery:8761/eureka/
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,info,mappings
+      MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+      MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: "true"
+      MANAGEMENT_METRICS_TAGS_APPLICATION: ${COMPOSE_PROJECT_NAME:-shop}
+      JAVA_TOOL_OPTIONS: >-
+        -Xms64m -Xmx256m
+        -XX:+UseG1GC
+        -XX:MaxGCPauseMillis=50
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:HeapDumpPath=/tmp
+        -Xlog:gc*:stdout:time,level,tags
+        -Dmanagement.metrics.distribution.percentiles-histogram.http.server.requests=true
+
+  inventory-service:
+    build:
+      context: ..
+      dockerfile: services/inventory-service/Dockerfile
+      args:
+        SERVICE_PATH: services/inventory-service
+    restart: unless-stopped
+    networks: [shop-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      discovery:
+        condition: service_healthy
+      catalog-service:
+        condition: service_started
+    # (опционально) тоже пробросим, чтобы можно было бить напрямую
+    ports:
+      - "8096:8080"
+    mem_limit: 512m
+    cpus: 0.25
+    pids_limit: 256
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+    environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery:8761/eureka/
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,info,mappings
+      MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+      MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: "true"
+      MANAGEMENT_METRICS_TAGS_APPLICATION: ${COMPOSE_PROJECT_NAME:-shop}
+      JAVA_TOOL_OPTIONS: >-
+        -Xms64m -Xmx256m
+        -XX:+UseG1GC
+        -XX:MaxGCPauseMillis=50
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:HeapDumpPath=/tmp
+        -Xlog:gc*:stdout:time,level,tags
+        -Dmanagement.metrics.distribution.percentiles-histogram.http.server.requests=true
+
+  # ============================
+  # CADVISOR (container metrics)
+  # ============================
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "8082:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks: [shop-net]
+    mem_limit: 256m
+    cpus: 0.2
+    pids_limit: 256
+
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks: [shop-net]
+    mem_limit: 512m
+    cpus: 0.25
+    pids_limit: 256
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=12h
+      - --storage.tsdb.retention.size=5GB
+      - --web.enable-lifecycle
+
+  grafana-image-renderer:
+    image: grafana/grafana-image-renderer:latest
+    restart: unless-stopped
+    networks: [shop-net]
+    mem_limit: 512m
+    cpus: 0.3
+    pids_limit: 256
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+    environment:
+      AUTH_TOKEN: "render-secret"
+      RENDERING_TIMEOUT: "180"
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    networks: [shop-net]
+    mem_limit: 768m
+    cpus: 0.4
+    pids_limit: 256
+    depends_on:
+      - grafana-image-renderer
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_USERS_VIEWERS_CAN_EDIT: "false"
+
+      GF_RENDERING_RENDERER: "http"
+      GF_RENDERING_SERVER_URL: "http://grafana-image-renderer:8081/render"
+      GF_RENDERING_CALLBACK_URL: "http://grafana:3000/"
+      GF_RENDERING_RENDERER_TOKEN: "render-secret"
+      GF_RENDERING_RENDER_TIMEOUT: "180"
+      GF_RENDERING_CONCURRENT_RENDER_REQUEST_LIMIT: "2"
+
+      GF_LOG_LEVEL: "debug"
+      GF_LOG_FILTERS: "rendering:debug"
+
+
+  # ============================
+  # UI: оставляем как есть, но теперь можно НЕ использовать в нагрузке
+  # ============================
+  ui:
+    build:
+      context: ../shop-ui
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      SHOP_API_BASE_URL: http://api-gateway:8080
+      APP_GATEWAY_BASE: http://api-gateway:8080
+    depends_on:
+      api-gateway:
+        condition: service_started
+    networks: [shop-net]
+    ports:
+      - "8088:8080"
+    mem_limit: 768m
+    cpus: 0.35
+    pids_limit: 1024
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+
+networks:
+  shop-net:
+    driver: bridge
+
+volumes:
+  pgdata: {}
+  prometheus-data: {}
+  grafana-data: {}

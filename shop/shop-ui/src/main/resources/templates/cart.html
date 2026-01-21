@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ru" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Корзина — MyShop</title>
+
+    <link rel="stylesheet" th:href="@{/webjars/bootstrap/css/bootstrap.min.css}">
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+
+<!-- Сообщение об успешном оформлении -->
+<div th:if="${message != null}" class="alert alert-success" th:text="${message}">OK</div>
+<!-- Сообщение об ошибке -->
+<div th:if="${error != null}" class="alert alert-danger" th:text="${error}">ERROR</div>
+
+
+
+
+<nav class="navbar navbar-dark bg-dark">
+    <div class="container">
+        <a class="navbar-brand fw-semibold" th:href="@{/}">MyShop</a>
+        <span class="navbar-text text-light">Корзина</span>
+    </div>
+</nav>
+
+<main class="container my-4">
+
+    <a th:href="@{/}" class="text-decoration-none text-muted d-inline-flex align-items-center mb-3">
+        &larr;&nbsp;Вернуться в каталог
+    </a>
+
+    <h1 class="h3 mb-3">Корзина</h1>
+
+    <!-- Сообщение об ошибке, если есть -->
+    <div th:if="${error != null}" class="alert alert-danger" th:text="${error}">Ошибка</div>
+
+    <!-- Пустая корзина -->
+    <div th:if="${#lists.isEmpty(items)} and ${error} == null">
+        <p>Корзина пуста.</p>
+    </div>
+
+    <!-- Непустая корзина -->
+    <div th:if="${!#lists.isEmpty(items)}">
+        <table class="table align-middle">
+            <thead>
+            <tr>
+                <th>Товар</th>
+                <th style="width: 120px;">Цена</th>
+                <th style="width: 120px;">Кол-во</th>
+                <th style="width: 120px;">Сумма</th>
+                <th style="width: 80px;"></th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="item : ${items}">
+                <td th:text="${item['name']}">Название товара</td>
+                <td>
+                    <span th:text="${item['price']}">0</span> ₽
+                </td>
+                <td th:text="${item['qty']}">1</td>
+                <td>
+                    <span th:text="${item['lineTotal']}">0</span> ₽
+                </td>
+                <td>
+                    <form th:action="@{'/cart/remove/' + ${item['productId']}}" method="post">
+                        <button type="submit" class="btn btn-sm btn-outline-danger">×</button>
+                    </form>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+
+        <div class="d-flex justify-content-between align-items-center mt-3">
+            <div>
+                Итого:&nbsp;
+                <strong><span th:text="${total}">0</span> ₽</strong>
+            </div>
+            <div class="container">
+                <a class="navbar-brand fw-semibold" th:href="@{/}">MyShop</a>
+
+                <div class="ms-auto">
+                    <a class="btn btn-outline-light btn-sm me-2" th:href="@{/orders}">Мои заказы</a>
+                    <a class="btn btn-outline-light btn-sm" th:href="@{/catalog}">Каталог</a>
+                </div>
+            </div>
+
+            <div class="d-flex gap-2">
+                <form th:action="@{/cart/clear}" method="post">
+                    <button type="submit" class="btn btn-outline-secondary btn-sm">
+                        Очистить корзину
+                    </button>
+                </form>
+
+                <form th:action="@{/cart/checkout}" method="post" style="display:inline">
+                    <button type="submit">Оформить заказ</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+</main>
+
+<script th:src="@{/webjars/bootstrap/js/bootstrap.bundle.min.js}"></script>
+</body>
+</html>

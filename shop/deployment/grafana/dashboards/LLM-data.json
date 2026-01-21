@@ -1,0 +1,97 @@
+{
+  "uid": "llm-loadtest-prom",
+  "title": "LLM Load Test Report (Prometheus)",
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": false,
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "HTTP RPS",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "PROM_DS" },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count[1m]))",
+          "legendFormat": "RPS"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 }
+    },
+
+    {
+      "id": 2,
+      "title": "CPU Usage (%)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "PROM_DS" },
+      "targets": [
+        {
+          "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{job=\"node-exporter\",mode=\"idle\"}[1m])) * 100)",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 }
+    },
+
+    {
+      "id": 3,
+      "title": "Memory Usage (%)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "PROM_DS" },
+      "targets": [
+        {
+          "expr": "100 * (1 - (node_memory_MemAvailable_bytes{job=\"node-exporter\"} / node_memory_MemTotal_bytes{job=\"node-exporter\"}))",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 }
+    },
+
+    {
+      "id": 4,
+      "title": "System Load (1m)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "PROM_DS" },
+      "targets": [
+        {
+          "expr": "node_load1{job=\"node-exporter\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 }
+    },
+
+    {
+      "id": 5,
+      "title": "Network RX (bytes/sec)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "PROM_DS" },
+      "targets": [
+        {
+          "expr": "rate(node_network_receive_bytes_total{job=\"node-exporter\",device!=\"lo\"}[1m])",
+          "legendFormat": "{{device}}"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 }
+    },
+
+    {
+      "id": 6,
+      "title": "Network TX (bytes/sec)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "PROM_DS" },
+      "targets": [
+        {
+          "expr": "rate(node_network_transmit_bytes_total{job=\"node-exporter\",device!=\"lo\"}[1m])",
+          "legendFormat": "{{device}}"
+        }
+      ],
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 }
+    }
+  ]
+}

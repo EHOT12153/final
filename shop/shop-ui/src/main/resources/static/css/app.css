@@ -1,0 +1,59 @@
+/* Общий стиль страницы */
+body {
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* Шапка */
+.navbar-brand {
+    font-weight: 600;
+    letter-spacing: 0.03em;
+}
+
+/* Заголовки страницы */
+main h1,
+main .h4 {
+    font-weight: 600;
+    margin-bottom: 0;
+}
+
+/* Карточка-таблица каталога */
+.table {
+    border-radius: 0.5rem;
+    overflow: hidden;
+    border: none;
+}
+
+.table thead th {
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.table tbody tr:hover {
+    background-color: #f7f7f9;
+}
+
+/* Ссылка на товар */
+.table a {
+    text-decoration: none;
+    color: #0d6efd;
+}
+
+.table a:hover {
+    text-decoration: underline;
+}
+
+/* Инпуты количества в строках таблицы */
+.table input[type="number"] {
+    max-width: 80px;
+}
+
+/* Кнопки в таблице */
+.table button.btn {
+    white-space: nowrap;
+}
+
+/* Футер */
+footer {
+    font-size: 0.85rem;
+}
